@@ -1,0 +1,369 @@
+---
+title: "Legitimacy in Peacekeeping"
+author: "Ella Balke"
+date: "October 1, 2016"
+output: html_document
+---
+
+```{r setup, loading libraries}
+library(dplyr)
+library(stringr)
+library(tidyr)
+library(ggplot2)
+library(lme4)
+setwd("~/Documents/St Olaf College/PSCI 321 Humanitarian Intervention and Peacekeeping/Data")
+options(scipen = 999)
+```
+
+## Datasets
+
+Loading datasets describing international conflicts at the participant level
+
+### Correlates of War Country Codes
+```{r}
+cow.df <- read.csv("COW country codes (2).csv", stringsAsFactors = F)
+```
+
+### Correlates of War Data
+```{r datasets}
+#### In order to investigation Correlates of War data I need to open and modify in SPSS
+#### ICPSR 9905
+extra_state.df <- read.csv("Correlates of War Data/Extra-StateWarData_v4.0.csv", stringsAsFactors = F) %>% 
+  filter(StartYear1 >= 1945) %>% 
+  mutate(Version = NULL, TransFrom = NULL, TransTo = NULL, WarType = rep(1), 
+         Initiator = as.character(Initiator))
+intra_state.df <- read.csv("Correlates of War Data/Intra-StateWarData_v4.1.csv", stringsAsFactors = F) %>% 
+  filter(StartYear1 >= 1945)%>% 
+  mutate(Version = NULL, TransFrom = NULL, TransTo = NULL, WarType = rep(2))
+inter_state.df <- read.csv("Correlates of War Data/Inter-StateWarData_v4.0.csv", stringsAsFactors = F) %>% 
+  filter(StartYear1 >= 1945)%>% 
+  mutate(Version = NULL, TransFrom = NULL, TransTo = NULL, WarType = rep(3),
+         Initiator = as.character(Initiator))
+non_state.df <- read.csv("Correlates of War Data/Non-StateWarData_v4.0 (1).csv", stringsAsFactors = F) %>% 
+  filter(StartYear >= 1945)%>% 
+  mutate(Version = NULL, TransFrom = NULL, TransTo = NULL, WarType = rep(4),
+         SideADeaths = as.character(SideADeaths), 
+         SideBDeaths = as.character(SideBDeaths)) 
+
+colnames(extra_state.df) <- c("WarNum","WarName","WarType","ccode1","SideA",  
+                              "ccode2","SideB",
+                              "StartMonth","StartDay","StartYear",
+                              "EndMonth","EndDay","EndYear","StartMonth2","StartDay2",
+                              "StartYear2","EndMonth2","EndDay2","EndYear2",
+                              "Initiator","Interven","Outcome",
+                              "WhereFought","BatDeath","NonStateDeaths")
+colnames(intra_state.df)<- c("WarNum","WarName","WarType","ccode1","SideA",
+                             "ccode2","SideB","Intnl","StartMonth","StartDay",
+                             "StartYear","EndMonth","EndDay","EndYear",
+                             "StartMonth2","StartDay2","StartYear2","EndMonth2",
+                             "EndDay2","EndYear2","WhereFought","Initiator",
+                             "Outcome","SideADeaths","SideBDeaths")
+colnames(inter_state.df) <- c("WarNum","WarName","WarType","ccode1","SideA",
+                            "Side","StartMonth","StartDay","StartYear","EndMonth",
+                            "EndDay","EndYear","StartMonth2","StartDay2",
+                            "StartYear2","EndMonth2","EndDay2","EndYear2",
+                            "WhereFought","Initiator","Outcome","BatDeath")
+colnames(non_state.df) <- c("WarNum","WarName","WarType","WhereFought",
+                            "SideA","SideB","StartYear",
+                            "StartMonth","StartDay","EndYear","EndMonth",
+                            "EndDay","Initiator","Outcome","SideADeaths",
+                            "SideBDeaths","TotalCombatDeaths")
+full_war.df <- extra_state.df %>% 
+  full_join(inter_state.df) %>% 
+  full_join(intra_state.df) %>% 
+  full_join(non_state.df)
+
+full_war1 <- full_war.df[full_war.df$SideB != - 8 & is.na(full_war.df$SideB) == F,] %>% 
+  rename(stateName = SideB) %>% 
+  rename(stateCode = ccode2) %>% 
+  rename(deaths = SideBDeaths) %>% 
+  mutate(SideA = NULL, ccode1 = NULL, SideADeaths = NULL)
+
+full_war2 <- full_war.df[full_war.df$SideA != - 8 & is.na(full_war.df$SideA) == F,] %>% 
+  rename(stateName = SideA) %>% 
+  rename(stateCode = ccode1) %>% 
+  rename(deaths = SideADeaths) %>% 
+  mutate(SideB = NULL, ccode2 = NULL, SideBDeaths = NULL)
+
+full_war.df2 <- rbind(full_war1, full_war2)
+
+full_war.df3 <- full_war.df2 %>% 
+  unique()
+population[order(population$age),]
+full_war.df4 <- full_war.df3[order(full_war.df3$WarNum),]
+
+write.csv(full_war.df4, "~/Desktop/full_war2.csv")
+
+# full_war.df$BatDeath[full_war.df$BatDeath == -8] <- NA
+# full_war.df$BatDeath[full_war.df$BatDeath == -9] <- NA
+# full_war.df$SideADeaths[full_war.df$SideADeaths == -8] <- NA
+# full_war.df$SideADeaths[full_war.df$SideADeaths == -9] <- NA
+# full_war.df$SideBDeaths[full_war.df$SideBDeaths == -8] <- NA
+# full_war.df$SideBDeaths[full_war.df$SideBDeaths == -9] <- NA
+
+# full_war.df2 <- full_war.df %>% 
+#   group_by(WarNum) %>% 
+#   summarize(WarName = first(WarName), StartYear = min(StartYear), 
+#             EndYear = max(as.numeric(EndYear)), BattleDeaths = sum(as.numeric(BatDeath)), 
+#             SideA = sum(as.numeric(SideADeaths)), SideB = sum(as.numeric(SideBDeaths)),
+#             Region = first(WhereFought))
+# 
+# full_war.df$EndYear[full_war.df$EndYear == -7] <- NA
+```
+
+
+### International Military Intervention Data (1946 - 2005)
+```{r}
+imi.df <- read.csv("MergedIMIData1947-2005 (1).csv", stringsAsFactors = F) 
+imi.df[,27:40] <- NULL
+imi.df2 <- imi.df %>% 
+  left_join(cow.df, by = c("intervener" = "CCode")) %>% 
+  rename(intAbb = StateAbb) %>% 
+  rename(intName = StateNme) %>% 
+  inner_join(cow.df, by = c("target" = "CCode")) %>% 
+  rename(targAbb = StateAbb) %>% 
+  rename(targName = StateNme)
+imi.df3 <- imi.df2 %>% 
+  unique()
+imi.df4 <- imi.df3 %>% 
+  mutate(StartYear = as.numeric(substr(start, 1, 4)),
+         StartMonth = as.numeric(substr(start, 5, 6)),
+         StartDay = as.numeric(substr(start, 7, 8)),
+         EndYear = as.numeric(substr(end, 1, 4)))
+imi.dfx <- imi.df4 %>% 
+  group_by(StartYear, targName) %>% 
+  summarize(interveners = length(intervener)) %>% 
+  mutate(target = as.character(targName))
+imi.df5 <- imi.df4[order(imi.df4$StartYear),]
+
+world_map <- imi.df5 %>% 
+  group_by(targName) %>% 
+  summarize(count = length(targName))
+
+peace.df <- read.csv("UN_peace.csv", stringsAsFactors = F)
+imi.df6 <- imi.df5 %>% 
+  left_join(peace.df, by = c("targName" = "Country", "StartYear" = "Start"))
+write.csv(imi.df6, "~/Documents/St Olaf College/PSCI 321 Humanitarian Intervention and Peacekeeping/Data/imi.csv")
+
+imi.df7 <- imi.df6 %>% 
+  filter(type == 2 | type == 3 | type == 4 | type == 5) %>% 
+  filter(source == 1 | source == 4) %>% 
+  filter(direction == 0 | direction == 1 | direction == 2 | direction == 5) %>% 
+  filter(pursuit_border != 1) %>% 
+  filter(firing_outside != 1) %>% 
+  mutate(pursuit_border = NULL, firing_outside = NULL)
+
+imi.df7$intervener_casualties <- ifelse(imi.df7$intervener_casualties == 999, NA,
+                                        imi.df7$intervener_casualties)
+imi.df7$intervener_casualties <- ifelse(imi.df7$intervener_casualties == 9999999, NA,
+                                        imi.df7$intervener_casualties)
+imi.df7$target.casualties <- ifelse(imi.df7$target.casualties == 999, NA, 
+                                    imi.df7$target.casualties)
+imi.df7$target.casualties <- ifelse(imi.df7$target.casualties == 9999999, NA,
+                                    imi.df7$target.casualties)
+imi.df7$type <- ifelse(imi.df7$type == 9, 0, imi.df7$type)
+imi.df7$amount <- ifelse(imi.df7$amount == 9, 0, imi.df7$amount)
+imi.df7$air <- ifelse(imi.df7$air == 9, 0, imi.df7$air)
+imi.df7$naval <- ifelse(imi.df7$naval == 9, 0, imi.df7$naval)
+imi.df7$size_naval <- ifelse(imi.df7$size_naval == 9, 0, imi.df7$size_naval)
+imi.df7$EndYear <- ifelse(imi.df7$EndYear == 9999, 2005, imi.df7$EndYear)
+imi.df7$EndYear <- ifelse(imi.df7$EndYear == 8888, 2005, imi.df7$EndYear)
+
+imi.df7$int_scale <- rep(0)
+for(i in 1:nrow(imi.df7)){
+  imi.df7$int_scale[i] <-imi.df$type[i] + imi.df7$amount[i] + imi.df7$air[i] + 
+    imi.df7$naval[i] + imi.df7$size_naval[i]
+}
+
+
+imi.df8 <- imi.df7 %>% 
+  group_by(StartYear, targName) %>% 
+  summarize(target = first(targName), source = mean(source, na.rm = T), 
+            EndYear = last(EndYear),
+            intervener = length(intName), un_duration = mean(Duration), 
+            targAbb = first(targAbb), 
+            int_cas = sum(intervener_casualties, na.rm = T), 
+            targ_cas = sum(target.casualties, na.rm = T),
+            int_scale = mean(int_scale, na.rm = T)) %>% 
+  mutate(un_indicator = ifelse(is.na(un_duration) == F, 1, 0))
+#write.csv(imi.df4, "~/Desktop/imi.csv")
+```
+
+
+```{r}
+wdi.df <- read.csv("wdi_peacekeeping.csv", stringsAsFactors = F)
+indicators <- wdi.df%>%
+  group_by(Indicator.Name)%>%
+  summarize(tot=n())%>%
+  arrange(desc(tot))
+head(with(indicators,Indicator.Name))
+
+indicatorNames <- with(indicators, Indicator.Name)
+vals <- c(12,13,24,29,32,35,36,37,67,123, 129, 137)
+vals
+indicatorNames[vals]
+
+wdi.df2 <- wdi.df%>%
+  filter(Indicator.Name  %in% indicatorNames[vals])%>%
+  select(Country.Name,Country.Code,year,Indicator.Name,value)%>%
+  spread(Indicator.Name,value)
+colnames(wdi.df2) <- c("Country.Name", "Country.Code", "year", "per_arable_land",
+                       "birth_per_1000", "crop_index", "death_per_1000", "food_index",
+                       "gdp_per_cap", "life_exp", "livestock_index", "total_DAC_aid",
+                       "net_dev_ass_aid", "net_dev_ass", "total_fish")
+```
+
+
+```{r}
+peace_missions.df <- imi.df8 %>% 
+  left_join(wdi.df2, by = c("targName" = "Country.Name",
+                            "StartYear" = "year")) %>% 
+  filter(is.na(Country.Code) == F)
+
+vec <- c()
+vec2 <- c()
+vec3 <- c()
+for(i in 1:nrow(peace_missions.df)){
+  hold <- peace_missions.df[peace_missions.df$target == peace_missions.df$target[i],]
+  for(j in 1:nrow(hold)){
+    print(hold$StartYear[j])
+    if(is.na( hold$StartYear[j + 1]) == F){
+      if(hold$StartYear[j + 1] > hold$EndYear[j]){
+         temp <- hold$StartYear[j + 1] - hold$EndYear[j]         
+      }
+      else{
+        temp <- hold$StartYear[j + 2] - hold$EndYear[j]
+      }
+    }
+    else{
+      temp <- NA
+    }
+    vec <- c(vec, temp)
+    vec2 <- c(vec2, hold$StartYear[j])
+    vec3 <- c(vec3, hold$target[j])
+  }
+}
+duration <- data.frame(target = vec3, StartYear = vec2, peace_dur = vec) 
+duration2 <- duration[duration$peace_dur > 0 | is.na(duration$peace_dur) == T,]
+
+peace_missions.df2 <- peace_missions.df %>% 
+  inner_join(duration2) %>% 
+  unique() %>% 
+  mutate(censor = ifelse(is.na(peace_dur) == F, 1, 0))%>% 
+  inner_join(imi.dfx)
+
+peace_missions.plot <- peace_missions.df %>% 
+  inner_join(duration) %>% 
+  unique() %>% 
+  mutate(censor = ifelse(is.na(peace_dur) == F, 1, 0)) %>% 
+  inner_join(imi.dfx)
+
+peace_missions.df2$peace_dur[is.na(peace_missions.df2$peace_dur) == T] <-
+  2005 - peace_missions.df2$StartYear[is.na(peace_missions.df2$peace_dur) == T]
+peace_missions.df2$conflict_dur <- peace_missions.df2$EndYear - peace_missions.df2$StartYear
+```
+
+
+
+
+```{r}
+library(survival)
+
+by(peace_missions.df2$peace_dur[peace_missions.df2$censor == 1], 
+   peace_missions.df2$un_indicator[peace_missions.df2$censor == 1], summary)
+by(peace_missions.df2$int_scale, peace_missions.df2$un_indicator, summary)
+by(peace_missions.df2$interveners, peace_missions.df2$un_indicator, summary)
+by(peace_missions.df2$targ_cas, peace_missions.df2$un_indicator, summary)
+by(peace_missions.df2$conflict_dur, peace_missions.df2$un_indicator, summary)
+by(peace_missions.df2$livestock_index, peace_missions.df2$un_indicator, summary)
+
+labels <- c(
+  '0' = 'Non UN Authorized Intervention',
+  '1' = 'UN Intervention'
+)
+ggplot(peace_missions.df2[peace_missions.df2$censor == 1,], aes(peace_dur)) +
+  geom_histogram() +
+  facet_wrap(~un_indicator, labeller = as_labeller(labels)) +
+  xlab("Duration of Peacetime After Conflict End") + ylab("Count") + 
+  theme(panel.backgroun = element_blank(), panel.grid = element_blank(), 
+        panel.grid.minor.y = element_line(color = "lightgray"),
+          panel.grid.major.y = element_line(color = "lightgray"))
+
+
+kitchen_mod <- coxph(Surv(peace_dur, censor) ~ 
+                       source + 
+                       conflict_dur +
+                       interveners + 
+                       int_cas + 
+                       int_scale + 
+                       un_indicator + 
+                       targ_cas + 
+                       int_scale + 
+                       per_arable_land + 
+                       birth_per_1000 + 
+                       crop_index +
+                       gdp_per_cap + 
+                       death_per_1000 + 
+                       food_index + 
+                       life_exp + 
+                       livestock_index + 
+                       net_dev_ass + 
+                       total_fish, 
+                     data = peace_missions.df2)
+summary(kitchen_mod)
+
+kitchen_mod <- coxph(Surv(peace_dur, censor) ~ 
+                       conflict_dur*un_indicator + 
+                       int_scale, 
+                     data = peace_missions.df2)
+summary(kitchen_mod)
+
+#### All significant model 
+kitchen_mod <- coxph(Surv(peace_dur, censor) ~ 
+                       life_exp + 
+                       livestock_index,
+                     data = peace_missions.df2)
+summary(kitchen_mod)
+
+kitchen_mod <- coxph(Surv(peace_dur, censor) ~ 
+                       int_scale,
+                     data = peace_missions.df2)
+summary(kitchen_mod)
+
+kitchen_mod <- coxph(Surv(peace_dur, censor) ~ 
+                       gdp_per_cap,
+                     data = peace_missions.df2)
+summary(kitchen_mod)
+
+kitchen_mod <- coxph(Surv(peace_dur, censor) ~ 
+                       un_indicator,
+                     data = peace_missions.df2)
+summary(kitchen_mod)
+kitchen_mod <- coxph(Surv(peace_dur, censor) ~ 
+                       conflict_dur,
+                     data = peace_missions.df2)
+summary(kitchen_mod)
+
+
+
+#### This is super interesting
+kitchen_mod <- coxph(Surv(peace_dur, censor) ~ 
+                       conflict_dur +  
+                       targ_cas +
+                       interveners +
+                       un_indicator +
+                       targ_cas:un_indicator +
+                       interveners:un_indicator,
+                     data = peace_missions.df2)
+summary(kitchen_mod)
+confint(kitchen_mod)
+boxplot(scale(peace_missions.plot$peace_dur), peace_missions.plot$un_indicator)
+
+ggplot(peace_missions.df2, aes(peace_dur, group = un_indicator, color = un_indicator)) +
+  geom_freqpoly() 
+
+
+```
+
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
